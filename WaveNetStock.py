@@ -73,7 +73,7 @@ def load_and_preprocess_data(data_path):
     y_val_seq = y_val_scaled[N_STEPS:]
     y_test_seq = y_test_scaled[N_STEPS:]
 
-    return X_train_reshaped, y_train_seq, X_val_reshaped, y_val_seq, X_test_reshaped, y_test_seq
+    return X_train_reshaped, y_train_seq, X_val_reshaped, y_val_seq, X_test_reshaped, y_test_seq, scaler_1
 
 
 def residual_block(x, num_filters, i, kernel_size, layers_per_block, dropout_rate):
@@ -204,5 +204,39 @@ def train_model(X_train_reshaped, y_train_seq, X_val_reshaped, y_val_seq):
     return model, history
 
 if __name__ == '__main__':
-    X_train, y_train, X_val, y_val, X_test, y_test = load_and_preprocess_data(DATA_PATH)
+    X_train, y_train, X_val, y_val, X_test, y_test, scaler_1 = load_and_preprocess_data(DATA_PATH)
     model, history = train_model(X_train, y_train, X_val, y_val)
+
+    ##Test set Analysis
+    y_pred = model.predict(X_test)
+    y_pred_inv = scaler_1.inverse_transform(y_pred)
+    y_test_inv = scaler_1.inverse_transform(y_test)
+
+    # Calculate the metrics for scaled values
+    mse_scaled = mean_squared_error(y_test, y_pred)
+
+    # Calculate the metrics for non-scaled (real) values
+    mse = mean_squared_error(y_test_inv, y_pred_inv)
+
+    # Find the epoch at which the best model was saved
+    early_stop = history.callbacks[0]  # assuming EarlyStopping is the first callback
+    best_epoch = early_stop.stopped_epoch - early_stop.patience
+    if best_epoch < 0:  # Handle the case where no early stopping occurred
+        best_epoch = epoch
+
+    # Displaying the MSE/Loss in the last epoch of the training and validation for comparison
+    print(f"Training MSE at best epoch (epoch {best_epoch}): {history.history['root_mean_squared_error'][best_epoch]}")
+    print(
+        f"Validation MSE at best epoch (epoch {best_epoch}): {history.history['val_root_mean_squared_error'][best_epoch]}")
+    print(f"Test MSE (non-inverted scale): {mse_scaled}")
+    print(f"Test MSE (real scale): {mse}")
+
+    # Plot the inverse predictions and true values
+    plt.figure(figsize=(20, 15))
+    plt.plot(y_pred_inv, label='Predicted', color='orange')
+    plt.plot(y_test_inv, label='True Values', color='blue')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Values')
+    plt.title('Predictions vs Real Values for WaveNet')
+    plt.legend()
+    plt.show()

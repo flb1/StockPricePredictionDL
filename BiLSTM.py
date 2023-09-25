@@ -1,4 +1,4 @@
-﻿import pandas as pd
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras.layers import LSTM, Dropout, Dense
@@ -11,7 +11,8 @@ from keras.optimizers import Adam
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 from sklearn.model_selection import train_test_split
-
+from tensorflow.keras.layers import Bidirectional
+import matplotlib
 # Constants
 DATA_PATH = 'TSLA_dataset_final.csv'
 PRED_HORIZON = 60
@@ -20,6 +21,9 @@ N_STEPS = 120
 
 
 def load_and_preprocess_data(data_path):
+    """
+    Load and preprocess the dataset.
+    """
     # Load data
     data = pd.read_csv(data_path, parse_dates=['date_time'], index_col='date_time')
 
@@ -63,31 +67,25 @@ def load_and_preprocess_data(data_path):
 
     return X_train_reshaped, y_train_seq, X_val_reshaped, y_val_seq, X_test_reshaped, y_test_seq, scaler_1
 
-
-# Define LSTM model
-def create_lstm_model(input_shape, lstm_units, l2_regs, dropout_rates):
+def create_stacked_bilstm_model(n_layers, n_units, dropout_rates, input_shape, n_dense_units):
+    """
+    Create a stacked BiLSTM model based on the specified parameters.
+    """
     model = Sequential()
+    for i in range(n_layers):
+        return_sequences = (i != n_layers - 1)  # Set return_sequences to True except for the last layer
+        model.add(Bidirectional(LSTM(n_units[i], return_sequences=return_sequences, input_shape=input_shape,
+                                     kernel_regularizer=l2(0))))
+        model.add(Dropout(dropout_rates[i]))
 
-    for i, (units, reg, rate) in enumerate(zip(lstm_units, l2_regs, dropout_rates)):
-        if i == 0:
-            model.add(LSTM(units, input_shape=input_shape, return_sequences=True, kernel_regularizer=l2(reg)))
-        else:
-            model.add(LSTM(units, activation='tanh', return_sequences=(i != len(lstm_units) - 1), kernel_regularizer=l2(reg)))
-        model.add(Dropout(rate))
-
-    model.add(Dense(20, activation='relu'))
+    model.add(Dense(n_dense_units, activation='relu'))
     model.add(Dense(1))
-
-    optimizer = Adam()
-    metrics = [RootMeanSquaredError(), MeanAbsolutePercentageError(), MeanSquaredError(), MeanAbsoluteError()]
-    model.compile(optimizer=optimizer, loss='mse', metrics=metrics)
-    model.summary()
-
     return model
 
-
-
 def plot_training_results(train_loss, val_loss):
+    """
+    Plot training and validation loss curves.
+    """
     plt.figure(figsize=(12, 6))
     plt.plot(train_loss, label='Training Loss')
     plt.plot(val_loss, label='Validation Loss')
@@ -97,29 +95,39 @@ def plot_training_results(train_loss, val_loss):
     plt.legend()
     plt.show()
 
-early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
 
+
+early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+# Define the parameters
+batch = 45
+epoch = 2
+n_layers = 2
+n_units = [100, 80]  # Number of units for each BiLSTM layer
+dropout_rates = [0.15, 0]  # Dropout rates between layers
+n_dense_units = 40
+early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+
+#Load and Preprocess the data
 X_train, y_train, X_val, y_val, X_test, y_test, scaler_1 = load_and_preprocess_data(DATA_PATH)
+input_shape = (X_train.shape[1], X_train.shape[2])
 
-# Define LSTM units and regularization for each layer
-lstm_units = [85, 55, 40]
-l2_regs = [0.01, 0.01, 0]
-dropout_rates = [0.1, 0.1, 0]
-batch = 40
-epoch = 40
+model = create_stacked_bilstm_model(n_layers, n_units, dropout_rates, input_shape, n_dense_units)
 
-# Create model
-model = create_lstm_model(X_train.shape[1:], lstm_units, l2_regs, dropout_rates)
+model.compile(optimizer='adam', loss='mse', metrics=[RootMeanSquaredError(),
+                                                     MeanAbsolutePercentageError(),
+                                                     MeanSquaredError(), MeanAbsoluteError()])
 
-# Train model
-history = model.fit(X_train, y_train, batch_size=batch, epochs=epoch, validation_data=(X_val, y_val),
-                        callbacks=[early_stop])
 
-# Plot training results
+history = model.fit(X_train, y_train, batch_size=batch, epochs=epoch,
+                    validation_data=(X_val, y_val), callbacks=[early_stop])
+
+model.summary()
+
+# Plot training results for BiLSTM
 plot_training_results(history.history['loss'], history.history['val_loss'])
 
-###TEST SET
+##Test set Analysis
 y_pred = model.predict(X_test)
 y_pred_inv = scaler_1.inverse_transform(y_pred)
 y_true = scaler_1.inverse_transform(y_test)
@@ -147,8 +155,10 @@ plt.plot(y_pred_inv, label='Predicted', color='orange')
 plt.plot(y_true, label='True Values', color='blue')
 plt.xlabel('Time Steps')
 plt.ylabel('Values')
-plt.title('Predictions vs real values for LSTM')
+plt.title('Predictions vs real values for BiLSTM')
 plt.legend()
 plt.show()
+
+
 
 
